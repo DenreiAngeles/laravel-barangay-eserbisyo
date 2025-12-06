@@ -1,7 +1,7 @@
 
   <h1>Barangay e-Serbisyo - Web Admin Panel</h1>
   <p>
-    <strong>Web-based Admin Dashboard for the Barangay e-Serbisyo system.</strong><br>
+    <strong>Web-based version of the Barangay e-Serbisyo mobile app.</strong><br>
     Connects to the same Firebase Firestore database used by the mobile application.
   </p>
 </div>
