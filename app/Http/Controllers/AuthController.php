@@ -54,7 +54,7 @@ class AuthController extends Controller
                 'idToken' => $user['idToken']
             ]);
 
-            return redirect()->route('resident.dashboard');
+            return redirect()->route('resident.home');
 
         } catch (\Exception $e) {
             return back()->withErrors(['email' => 'Invalid credentials or user not found.']);
@@ -124,7 +124,7 @@ class AuthController extends Controller
 
             $newUser = $response->json();
             $uid = $newUser['localId'];
-            $idToken = $newUser['idToken']; 
+            $idToken = $newUser['idToken'];
 
             // 2. Upload Files
             $idPhotoUrl = $this->uploadFile($request->file('validId'), "user_documents/{$uid}/id_photo.jpg", $idToken);
@@ -142,20 +142,20 @@ class AuthController extends Controller
                 'phoneNumber' => $request->phoneNumber,
                 'address' => $request->address,
                 'civilStatus' => $request->civilStatus,
-                
+
                 // Pass Carbon objects
-                'birthdate' => $birthDate, 
+                'birthdate' => $birthDate,
                 'registrationDate' => $now,
 
                 'idPhotoUrl' => $idPhotoUrl,
                 'selfiePhotoUrl' => $selfiePhotoUrl,
                 'profilePictureUrl' => null,
 
-                'verificationStatus' => 'pending', 
+                'verificationStatus' => 'pending',
                 'rejectionReason' => null,
                 'approvedBy' => null,
                 'approvedAt' => null,
-                
+
                 'pushNotifications' => true,
                 'emailNotifications' => true,
                 'emergencyAlerts' => true,
@@ -164,7 +164,7 @@ class AuthController extends Controller
 
             // 5. Save to Firestore
             $firestoreUrl = "https://firestore.googleapis.com/v1/projects/{$this->projectId}/databases/(default)/documents/users/{$uid}";
-            
+
             $dbResponse = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $idToken
             ])->patch($firestoreUrl, $this->formatForFirestore($userData));
