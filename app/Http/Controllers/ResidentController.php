@@ -64,16 +64,6 @@ class ResidentController extends Controller
         return view('resident.profile', ['user' => $userData]);
     }
 
-    // Tickets Page
-    public function tickets()
-    {
-        if (!Session::has('firebase_user')) {
-            return redirect()->route('login');
-        }
-
-        return view('resident.tickets');
-    }
-
     // Document Requests Page
     public function documents()
     {
