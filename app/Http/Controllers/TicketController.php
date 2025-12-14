@@ -7,6 +7,7 @@ use MrShan0\PHPFirestore\FirestoreClient;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Http;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class TicketController extends Controller
 {
@@ -43,17 +44,36 @@ class TicketController extends Controller
             ])->get($firestoreUrl);
 
             $tickets = [];
+            
+            // Log the response for debugging
+            Log::info('Firestore Response Status: ' . $response->status());
+            Log::info('Current User UID: ' . $uid);
+
             if ($response->successful() && isset($response->json()['documents'])) {
                 foreach ($response->json()['documents'] as $doc) {
                     $data = $this->parseFirestoreDocument($doc);
-                    if ($data['userId'] === $uid) {
+                    
+                    // Log each ticket's userId for debugging
+                    Log::info('Ticket userId: ' . ($data['userId'] ?? 'NOT SET'));
+                    
+                    // More flexible comparison - handle both string formats
+                    $ticketUserId = $data['userId'] ?? null;
+                    
+                    if ($ticketUserId === $uid) {
                         $tickets[] = [
                             'id' => basename($doc['name']),
                             'data' => $data
                         ];
                     }
                 }
+            } else {
+                // Log if no documents found
+                Log::warning('No documents found in response or request failed');
+                Log::info('Response: ' . $response->body());
             }
+
+            // Log total tickets found
+            Log::info('Total tickets found for user: ' . count($tickets));
 
             // Sort by creation date (newest first)
             usort($tickets, function($a, $b) {
@@ -73,6 +93,10 @@ class TicketController extends Controller
             return view('resident.tickets.index', compact('tickets', 'filterStatus'));
 
         } catch (\Exception $e) {
+            // Log the error
+            Log::error('Error fetching tickets: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+            
             return view('resident.tickets.index', [
                 'tickets' => [],
                 'filterStatus' => 'all',
@@ -127,7 +151,7 @@ class TicketController extends Controller
                         'type' => str_starts_with($file->getMimeType(), 'image/') ? 'photo' : 'file',
                         'url' => $url,
                         'name' => $file->getClientOriginalName(),
-                        'uploadedAt' => Carbon::now('Asia/Manila')
+                        'uploadedAt' => Carbon::now('Asia/Manila')->toIso8601String()
                     ];
                 }
             }
@@ -136,7 +160,7 @@ class TicketController extends Controller
             $now = Carbon::now('Asia/Manila');
             $ticketData = [
                 'ticketId' => $ticketId,
-                'userId' => $uid,
+                'userId' => $uid, // Make sure this is set correctly
                 'title' => $request->title,
                 'category' => $request->category,
                 'location' => $request->location,
@@ -144,14 +168,17 @@ class TicketController extends Controller
                 'status' => 'pending',
                 'priority' => $this->determinePriority($request->category),
                 'attachments' => $attachments,
-                'collaborators' => $request->collaborators ? explode(',', $request->collaborators) : [],
+                'collaborators' => $request->collaborators ? array_filter(explode(',', $request->collaborators)) : [],
                 'comments' => [],
                 'commentCount' => 0,
-                'createdAt' => $now,
-                'updatedAt' => $now,
+                'createdAt' => $now->toIso8601String(),
+                'updatedAt' => $now->toIso8601String(),
                 'resolvedAt' => null,
                 'resolvedBy' => null
             ];
+
+            // Log the ticket data being saved
+            Log::info('Creating ticket with data:', $ticketData);
 
             // Save to Firestore
             $firestoreUrl = "https://firestore.googleapis.com/v1/projects/{$this->projectId}/databases/(default)/documents/tickets/{$ticketId}";
@@ -161,12 +188,16 @@ class TicketController extends Controller
             ])->patch($firestoreUrl, $this->formatForFirestore($ticketData));
 
             if ($response->failed()) {
+                Log::error('Failed to create ticket: ' . $response->body());
                 throw new \Exception("Failed to create ticket: " . $response->body());
             }
 
-            return redirect()->route('resident.tickets.show', $ticketId)->with('success', 'Ticket created successfully!');
+            Log::info('Ticket created successfully: ' . $ticketId);
+
+            return redirect()->route('resident.tickets')->with('success', 'Ticket created successfully!');
 
         } catch (\Exception $e) {
+            Log::error('Error creating ticket: ' . $e->getMessage());
             return back()->withErrors(['error' => 'Failed to create ticket: ' . $e->getMessage()])->withInput();
         }
     }
@@ -211,6 +242,7 @@ class TicketController extends Controller
             return view('resident.tickets.show', compact('ticket'));
 
         } catch (\Exception $e) {
+            Log::error('Error showing ticket: ' . $e->getMessage());
             return redirect()->route('resident.tickets')->withErrors(['error' => 'Ticket not found.']);
         }
     }
@@ -252,14 +284,14 @@ class TicketController extends Controller
             $comments[] = [
                 'userId' => $uid,
                 'comment' => $request->comment,
-                'createdAt' => Carbon::now('Asia/Manila')
+                'createdAt' => Carbon::now('Asia/Manila')->toIso8601String()
             ];
 
             // Update ticket
             $updateData = [
                 'comments' => $comments,
                 'commentCount' => count($comments),
-                'updatedAt' => Carbon::now('Asia/Manila')
+                'updatedAt' => Carbon::now('Asia/Manila')->toIso8601String()
             ];
 
             $updateResponse = Http::withHeaders([
@@ -273,6 +305,7 @@ class TicketController extends Controller
             return back()->with('success', 'Comment added successfully!');
 
         } catch (\Exception $e) {
+            Log::error('Error adding comment: ' . $e->getMessage());
             return back()->withErrors(['error' => 'Failed to add comment: ' . $e->getMessage()]);
         }
     }
@@ -313,11 +346,15 @@ class TicketController extends Controller
             } elseif (is_bool($value)) {
                 $fields[$key] = ['booleanValue' => $value];
             } elseif (is_int($value)) {
-                $fields[$key] = ['integerValue' => $value];
+                $fields[$key] = ['integerValue' => (string)$value];
             } elseif (is_float($value)) {
                 $fields[$key] = ['doubleValue' => $value];
             } elseif (is_array($value)) {
-                $fields[$key] = ['arrayValue' => ['values' => $this->formatArrayForFirestore($value)]];
+                if (empty($value)) {
+                    $fields[$key] = ['arrayValue' => ['values' => []]];
+                } else {
+                    $fields[$key] = ['arrayValue' => ['values' => $this->formatArrayForFirestore($value)]];
+                }
             } elseif ($value instanceof \DateTimeInterface) {
                 $date = Carbon::instance($value);
                 $fields[$key] = ['timestampValue' => $date->setTimezone('UTC')->format('Y-m-d\TH:i:s\Z')];
@@ -337,7 +374,7 @@ class TicketController extends Controller
             } elseif (is_string($item)) {
                 $values[] = ['stringValue' => $item];
             } elseif (is_int($item)) {
-                $values[] = ['integerValue' => $item];
+                $values[] = ['integerValue' => (string)$item];
             } elseif (is_bool($item)) {
                 $values[] = ['booleanValue' => $item];
             } elseif ($item instanceof \DateTimeInterface) {
