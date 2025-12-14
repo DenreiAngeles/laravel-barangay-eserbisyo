@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use MrShan0\PHPFirestore\FirestoreClient;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Http;
+use Carbon\Carbon;
 
 class ResidentController extends Controller
 {
@@ -19,27 +21,61 @@ class ResidentController extends Controller
         $this->firestore = new FirestoreClient($this->projectId, $this->apiKey);
     }
 
-    // Home Dashboard (NEW - This is what should show first)
+    // HOME DASHBOARD
     public function home()
     {
         if (!Session::has('firebase_user')) {
             return redirect()->route('login');
         }
 
-        // For now, we'll pass empty data or static data
-        // Later you can fetch real announcements and tickets from Firebase
-        return view('resident.home');
+        $sessionUser = Session::get('firebase_user');
+        $uid = $sessionUser['uid'];
+        $idToken = $sessionUser['idToken'];
+
+        $tickets = [];
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $idToken
+            ])->get(
+                "https://firestore.googleapis.com/v1/projects/{$this->projectId}/databases/(default)/documents/tickets"
+            );
+
+            if ($response->successful() && isset($response->json()['documents'])) {
+                foreach ($response->json()['documents'] as $doc) {
+                    $data = $this->parseFirestoreDocument($doc);
+
+                    // Only tickets created by this user
+                    if (($data['userId'] ?? null) === $uid) {
+                        $tickets[] = [
+                            'id' => basename($doc['name']),
+                            'data' => $data
+                        ];
+                    }
+                }
+            }
+
+            // Newest first
+            usort($tickets, function ($a, $b) {
+                return strtotime($b['data']['createdAt'] ?? '')
+                     <=> strtotime($a['data']['createdAt'] ?? '');
+            });
+
+        } catch (\Exception $e) {
+            // Fail silently – home page should still load
+            $tickets = [];
+        }
+
+        return view('resident.home', compact('tickets'));
     }
 
-    // OLD METHOD - REMOVE THIS OR RENAME IT
-    // This is causing the issue because it's trying to load 'resident.dashboard'
+    // OLD METHOD – SAFE REDIRECT
     public function index()
     {
-        // Redirect to the new home route instead
         return redirect()->route('resident.home');
     }
 
-    // Profile Page (This will show the user's personal info)
+    // Profile Page
     public function profile()
     {
         if (!Session::has('firebase_user')) {
@@ -51,12 +87,10 @@ class ResidentController extends Controller
 
         try {
             $doc = $this->firestore->getDocument('users/' . $uid);
-
             $userData = [
                 'id' => basename($doc->getName()),
                 'data' => $doc->toArray()
             ];
-
         } catch (\Exception $e) {
             $userData = null;
         }
@@ -64,7 +98,6 @@ class ResidentController extends Controller
         return view('resident.profile', ['user' => $userData]);
     }
 
-    // Document Requests Page
     public function documents()
     {
         if (!Session::has('firebase_user')) {
@@ -74,7 +107,6 @@ class ResidentController extends Controller
         return view('resident.documents');
     }
 
-    // Transparency Page
     public function transparency()
     {
         if (!Session::has('firebase_user')) {
@@ -84,7 +116,6 @@ class ResidentController extends Controller
         return view('resident.transparency');
     }
 
-    // Barangay Map Page
     public function map()
     {
         if (!Session::has('firebase_user')) {
@@ -92,5 +123,23 @@ class ResidentController extends Controller
         }
 
         return view('resident.map');
+    }
+
+    //HELPER: Firestore REST parser
+    private function parseFirestoreDocument($doc)
+    {
+        $data = [];
+
+        foreach ($doc['fields'] ?? [] as $key => $value) {
+            if (isset($value['stringValue'])) {
+                $data[$key] = $value['stringValue'];
+            } elseif (isset($value['timestampValue'])) {
+                $data[$key] = $value['timestampValue'];
+            } elseif (isset($value['integerValue'])) {
+                $data[$key] = (int) $value['integerValue'];
+            }
+        }
+
+        return $data;
     }
 }

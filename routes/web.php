@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ResidentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\TicketController;
+use App\Http\Controllers\TransparencyController;
 use App\Http\Controllers\ServiceRequestController;
 
 // Guest routes
@@ -40,7 +41,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/requests/{requestId}/resubmit/{index}', [ServiceRequestController::class, 'resubmitRequirement'])->name('resident.requests.resubmit');
 
     // Other Pages
-    Route::get('/transparency', [ResidentController::class, 'transparency'])->name('resident.transparency');
+    Route::get('/transparency', [TransparencyController::class, 'index'])->name('resident.transparency');
     Route::get('/map', [ResidentController::class, 'map'])->name('resident.map');
 
     // Logout
