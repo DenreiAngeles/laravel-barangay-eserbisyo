@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ResidentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\TicketController;
-
+use App\Http\Controllers\ServiceRequestController;
 
 // Guest routes
 Route::middleware('guest')->group(function () {
@@ -18,19 +18,28 @@ Route::middleware('guest')->group(function () {
 
 // Protected routes
 Route::middleware('auth')->group(function () {
-    // Home Dashboard (NEW - Main landing page after login)
+    // Home Dashboard
     Route::get('/', [ResidentController::class, 'home'])->name('resident.home');
 
-    // Profile Page (OLD dashboard content)
+    // Profile
     Route::get('/profile', [ResidentController::class, 'profile'])->name('resident.profile');
 
-    // Other Pages
+    // Tickets
     Route::get('/tickets', [TicketController::class, 'index'])->name('resident.tickets');
     Route::get('/tickets/create', [TicketController::class, 'create'])->name('resident.tickets.create');
     Route::post('/tickets', [TicketController::class, 'store'])->name('resident.tickets.store');
     Route::get('/tickets/{id}', [TicketController::class, 'show'])->name('resident.tickets.show');
     Route::post('/tickets/{id}/comment', [TicketController::class, 'addComment'])->name('resident.tickets.addComment');
-    Route::get('/documents', [ResidentController::class, 'documents'])->name('resident.documents');
+
+    // Document/Service Requests (Firebase)
+    Route::get('/documents', [ServiceRequestController::class, 'index'])->name('resident.documents');
+    Route::get('/documents/{serviceId}', [ServiceRequestController::class, 'show'])->name('resident.documents.show');
+    Route::post('/documents/{serviceId}/request', [ServiceRequestController::class, 'store'])->name('resident.documents.request');
+    Route::get('/my-requests', [ServiceRequestController::class, 'myRequests'])->name('resident.my-requests');
+    Route::get('/requests/{requestId}', [ServiceRequestController::class, 'showStatus'])->name('resident.requests.show');
+    Route::post('/requests/{requestId}/resubmit/{index}', [ServiceRequestController::class, 'resubmitRequirement'])->name('resident.requests.resubmit');
+
+    // Other Pages
     Route::get('/transparency', [ResidentController::class, 'transparency'])->name('resident.transparency');
     Route::get('/map', [ResidentController::class, 'map'])->name('resident.map');
 
