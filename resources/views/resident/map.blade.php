@@ -192,21 +192,19 @@
                             
                             // Parse location - handle both structures
                             let lat, lng;
-                            
-                            // Try nested structure first (from Flutter)
-                            if (fields.location && fields.location.mapValue) {
+
+                            // Try flat structure first (your current Firestore structure)
+                            lat = parseFirestoreValue(fields.latitude);
+                            lng = parseFirestoreValue(fields.longitude);
+                            console.log('📍 Using flat location structure:', { lat, lng });
+
+                            // Fallback to nested structure (from Flutter)
+                            if ((!lat || !lng) && fields.location && fields.location.mapValue) {
                                 const location = parseFirestoreValue(fields.location);
                                 lat = location?.latitude;
                                 lng = location?.longitude;
                                 console.log('📍 Using nested location structure:', { lat, lng });
-                            }
-                            // Fallback to flat structure
-                            else {
-                                lat = parseFirestoreValue(fields.latitude);
-                                lng = parseFirestoreValue(fields.longitude);
-                                console.log('📍 Using flat location structure:', { lat, lng });
-                            }
-
+}
                             if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
                                 console.warn('❌ Invalid coordinates for:', name, { lat, lng });
                                 return;
@@ -249,6 +247,14 @@
                         console.warn('⚠️ No documents found in facilitiesData');
                     }
 
+                    // Update stats state
+                    setStats({
+                        facilities: facilityCount,
+                        health: healthCount,
+                        security: securityCount,
+                        emergencies: 0
+                    });
+
                     if (boundaryData.fields?.points) {
                         const points = parseFirestoreValue(boundaryData.fields.points);
                         if (points && Array.isArray(points)) {
@@ -264,20 +270,46 @@
                     if (floodZonesData.documents) {
                         floodZonesData.documents.forEach(doc => {
                             const fields = doc.fields;
-                            const level = parseFirestoreValue(fields.level);
-                            const points = parseFirestoreValue(fields.points);
+                            const name = parseFirestoreValue(fields.name) || 'Flood Zone';
+                            const type = (parseFirestoreValue(fields.type) || 'moderate').toLowerCase();  // ✅ USE 'type' field
+                            const pointsArray = parseFirestoreValue(fields.points);
 
-                            if (points && Array.isArray(points)) {
-                                const coords = points.map(p => [p.latitude, p.longitude]);
-                                const color = level === 'very_high' ? '#7c3aed' :
-                                             level === 'high' ? '#6366f1' :
-                                             '#93c5fd';
+                            if (pointsArray && Array.isArray(pointsArray)) {
+                                // Convert geopoints to lat/lng pairs
+                                const coords = pointsArray.map(point => {
+                                    if (point.latitude && point.longitude) {
+                                        return [point.latitude, point.longitude];
+                                    }
+                                    return null;
+                                }).filter(Boolean);
 
-                                L.polygon(coords, {
-                                    color: color,
-                                    weight: 2,
-                                    fillOpacity: 0.3
-                                }).addTo(layerGroups.current.floodZones);
+                                if (coords.length > 0) {
+                                    // Determine color based on type
+                                    let color, fillOpacity;
+                                    if (type === 'very_high') {
+                                        color = '#7c3aed'; // Purple
+                                        fillOpacity = 0.4;
+                                    } else if (type === 'high') {
+                                        color = '#6366f1'; // Indigo
+                                        fillOpacity = 0.3;
+                                    } else {
+                                        color = '#93c5fd'; // Light Blue
+                                        fillOpacity = 0.3;
+                                    }
+
+                                    // Add polygon with popup
+                                    L.polygon(coords, {
+                                        color: color,
+                                        weight: 2,
+                                        fillOpacity: fillOpacity,
+                                        fillColor: color
+                                    }).bindPopup(`
+                                        <div style="padding: 8px;">
+                                            <h3 style="font-weight: bold; font-size: 14px; margin-bottom: 4px;">${name}</h3>
+                                            <p style="font-size: 12px; color: #666;">Risk Level: ${type.replace('_', ' ').toUpperCase()}</p>
+                                        </div>
+                                    `).addTo(layerGroups.current.floodZones);
+                                }
                             }
                         });
                     }
@@ -531,7 +563,7 @@
                         }, 'Barangay Hall'),
                         React.createElement('p', {
                             style: { fontSize: '18px', fontWeight: 'bold', color: '#2563eb' }
-                        }, '(043) XXX-XXXX')
+                        }, '(0991) 320 2048')
                     )
                 )
             )
