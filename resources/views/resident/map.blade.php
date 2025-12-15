@@ -65,6 +65,14 @@
             if (value.timestampValue !== undefined) return value.timestampValue;
             if (value.nullValue !== undefined) return null;
             
+            // Handle geoPointValue
+            if (value.geoPointValue) {
+                return {
+                    latitude: value.geoPointValue.latitude,
+                    longitude: value.geoPointValue.longitude
+                };
+            }
+            
             // Handle mapValue (nested objects)
             if (value.mapValue && value.mapValue.fields) {
                 const result = {};
@@ -277,24 +285,32 @@
                             if (pointsArray && Array.isArray(pointsArray)) {
                                 // Convert geopoints to lat/lng pairs
                                 const coords = pointsArray.map(point => {
+                                    // Handle Firestore geopoint structure from REST API
+                                    if (point.geoPointValue) {
+                                        return [point.geoPointValue.latitude, point.geoPointValue.longitude];
+                                    }
+                                    // Fallback for already parsed geopoints
                                     if (point.latitude && point.longitude) {
                                         return [point.latitude, point.longitude];
                                     }
                                     return null;
                                 }).filter(Boolean);
 
-                                if (coords.length > 0) {
+                               if (coords.length > 0) {
                                     // Determine color based on type
-                                    let color, fillOpacity;
+                                    let color, fillOpacity, displayType;
                                     if (type === 'very_high') {
                                         color = '#7c3aed'; // Purple
                                         fillOpacity = 0.4;
+                                        displayType = 'Very High';
                                     } else if (type === 'high') {
                                         color = '#6366f1'; // Indigo
                                         fillOpacity = 0.3;
+                                        displayType = 'High';
                                     } else {
                                         color = '#93c5fd'; // Light Blue
                                         fillOpacity = 0.3;
+                                        displayType = 'Moderate';
                                     }
 
                                     // Add polygon with popup
@@ -306,7 +322,7 @@
                                     }).bindPopup(`
                                         <div style="padding: 8px;">
                                             <h3 style="font-weight: bold; font-size: 14px; margin-bottom: 4px;">${name}</h3>
-                                            <p style="font-size: 12px; color: #666;">Risk Level: ${type.replace('_', ' ').toUpperCase()}</p>
+                                            <p style="font-size: 12px; color: #666;">Risk Level: ${displayType}</p>
                                         </div>
                                     `).addTo(layerGroups.current.floodZones);
                                 }
