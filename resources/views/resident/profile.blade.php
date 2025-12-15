@@ -17,8 +17,18 @@
                 <!-- Profile Picture -->
                 <div class="absolute top-12 left-1/2 transform -translate-x-1/2">
                     <div class="h-24 w-24 rounded-full border-4 border-white shadow-md overflow-hidden bg-gray-200">
-                        <img src="{{ $user['data']['profilePictureUrl'] ?? $user['data']['selfiePhotoUrl'] ?? 'https://ui-avatars.com/api/?name='.urlencode($user['data']['firstName'] ?? 'User') }}"
-                             class="w-full h-full object-cover" alt="Profile">
+                        @php
+                            $firstName = $user['data']['firstName'] ?? 'User';
+                            $lastName = $user['data']['lastName'] ?? '';
+                            $fullName = $firstName . ' ' . $lastName;
+                            $profilePic = $user['data']['profilePictureUrl'] 
+                                ?? $user['data']['selfiePhotoUrl'] 
+                                ?? 'https://ui-avatars.com/api/?name=' . urlencode($fullName);
+                        @endphp
+                        <img src="{{ $profilePic }}"
+                             class="w-full h-full object-cover" 
+                             alt="Profile"
+                             onerror="this.src='https://ui-avatars.com/api/?name={{ urlencode($fullName) }}'">
                     </div>
                 </div>
 
@@ -31,7 +41,7 @@
                     <!-- Verification Badge -->
                     @php
                         $status = $user['data']['verificationStatus'] ?? 'pending';
-                        $badgeColor = match($status) {
+                        $badgeColor = match(strtolower($status)) {
                             'verified' => 'bg-green-100 text-green-800 border-green-200',
                             'rejected' => 'bg-red-100 text-red-800 border-red-200',
                             default => 'bg-yellow-100 text-yellow-800 border-yellow-200'
@@ -63,6 +73,20 @@
                         <span class="block text-xs text-gray-400 uppercase">Address</span>
                         <span class="text-gray-700 font-medium">{{ $user['data']['address'] ?? 'N/A' }}</span>
                     </div>
+                    @if(isset($user['data']['dateOfBirth']))
+                    <div>
+                        <span class="block text-xs text-gray-400 uppercase">Date of Birth</span>
+                        <span class="text-gray-700 font-medium">
+                            {{ \Carbon\Carbon::parse($user['data']['dateOfBirth'])->format('F d, Y') }}
+                        </span>
+                    </div>
+                    @endif
+                    @if(isset($user['data']['gender']))
+                    <div>
+                        <span class="block text-xs text-gray-400 uppercase">Gender</span>
+                        <span class="text-gray-700 font-medium">{{ ucfirst($user['data']['gender']) }}</span>
+                    </div>
+                    @endif
                 </div>
             </div>
 

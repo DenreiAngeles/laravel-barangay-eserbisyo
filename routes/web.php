@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\TicketController;
 use App\Http\Controllers\TransparencyController;
 use App\Http\Controllers\ServiceRequestController;
+use App\Http\Controllers\ProfileController;
 
 // Guest routes
 Route::middleware('guest')->group(function () {
@@ -23,7 +24,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/', [ResidentController::class, 'home'])->name('resident.home');
 
     // Profile
-    Route::get('/profile', [ResidentController::class, 'profile'])->name('resident.profile');
+    Route::get('/profile', [ProfileController::class, 'index'])->name('resident.profile');
 
     // Tickets
     Route::get('/tickets', [TicketController::class, 'index'])->name('resident.tickets');
