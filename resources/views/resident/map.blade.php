@@ -40,7 +40,7 @@
         // Firebase Config
         const FIREBASE_CONFIG = {
             projectId: 'barangay-eservice-app',
-            apiKey: 'AIzaSyAWOOBfSQiuqldQ6Rh9OmZyFYA5Jw6E6N0' // Replace with your actual key
+            apiKey: 'AIzaSyAWOOBfSQiuqldQ6Rh9OmZyFYA5Jw6E6N0'
         };
 
         const BARANGAY_CENTER = [13.643598, 121.215065];
@@ -53,6 +53,34 @@
             boundary: null,
             emergencies: null
         });
+
+        // Helper function to parse Firestore values
+        const parseFirestoreValue = (value) => {
+            if (!value) return null;
+            
+            if (value.stringValue !== undefined) return value.stringValue;
+            if (value.integerValue !== undefined) return parseInt(value.integerValue);
+            if (value.doubleValue !== undefined) return parseFloat(value.doubleValue);
+            if (value.booleanValue !== undefined) return value.booleanValue;
+            if (value.timestampValue !== undefined) return value.timestampValue;
+            if (value.nullValue !== undefined) return null;
+            
+            // Handle mapValue (nested objects)
+            if (value.mapValue && value.mapValue.fields) {
+                const result = {};
+                for (const [key, val] of Object.entries(value.mapValue.fields)) {
+                    result[key] = parseFirestoreValue(val);
+                }
+                return result;
+            }
+            
+            // Handle arrayValue
+            if (value.arrayValue && value.arrayValue.values) {
+                return value.arrayValue.values.map(v => parseFirestoreValue(v));
+            }
+            
+            return null;
+        };
 
         // Initialize Leaflet Map
         useEffect(() => {
@@ -122,10 +150,14 @@
                     setLoading(true);
                     const L = window.L;
 
+                    console.log('🔍 Fetching facilities from Firebase...');
+
                     const facilitiesRes = await fetch(
                         `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents/facilities`
                     );
                     const facilitiesData = await facilitiesRes.json();
+
+                    console.log('📦 Raw facilities data:', facilitiesData);
 
                     const boundariesRes = await fetch(
                         `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents/boundaries/barangay_main`
@@ -142,14 +174,45 @@
                     let securityCount = 0;
 
                     if (facilitiesData.documents) {
+                        console.log('📦 Total documents found:', facilitiesData.documents.length);
+                        
                         facilitiesData.documents.forEach(doc => {
                             const fields = doc.fields;
-                            const name = fields.name?.stringValue || 'Unknown';
-                            const type = fields.type?.stringValue || 'general';
-                            const lat = parseFloat(fields.location?.mapValue?.fields?.latitude?.doubleValue);
-                            const lng = parseFloat(fields.location?.mapValue?.fields?.longitude?.doubleValue);
+                            console.log('🏢 Processing facility document:', doc.name, fields);
+                            
+                            const name = parseFirestoreValue(fields.name) || 'Unknown';
+                            const type = parseFirestoreValue(fields.type) || 'general';
+                            const isActive = parseFirestoreValue(fields.isActive);
+                            
+                            // Skip inactive facilities
+                            if (isActive === false) {
+                                console.log('⏭️ Skipping inactive facility:', name);
+                                return;
+                            }
+                            
+                            // Parse location - handle both structures
+                            let lat, lng;
+                            
+                            // Try nested structure first (from Flutter)
+                            if (fields.location && fields.location.mapValue) {
+                                const location = parseFirestoreValue(fields.location);
+                                lat = location?.latitude;
+                                lng = location?.longitude;
+                                console.log('📍 Using nested location structure:', { lat, lng });
+                            }
+                            // Fallback to flat structure
+                            else {
+                                lat = parseFirestoreValue(fields.latitude);
+                                lng = parseFirestoreValue(fields.longitude);
+                                console.log('📍 Using flat location structure:', { lat, lng });
+                            }
 
-                            if (!lat || !lng) return;
+                            if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
+                                console.warn('❌ Invalid coordinates for:', name, { lat, lng });
+                                return;
+                            }
+
+                            console.log(`✅ Valid facility: ${name} (${type}) at [${lat}, ${lng}]`);
 
                             const icon = L.divIcon({
                                 html: getMarkerIcon(type),
@@ -165,67 +228,63 @@
                                     </div>
                                 `);
 
-                            if (type === 'health_center') {
+                            const typeL = type.toLowerCase();
+                            if (typeL.includes('health') || typeL.includes('clinic') || typeL.includes('center')) {
                                 marker.addTo(layerGroups.current.health);
                                 healthCount++;
-                            } else if (type === 'security_post') {
+                                console.log('❤️ Added to health layer, count:', healthCount);
+                            } else if (typeL.includes('security') || typeL.includes('police') || typeL.includes('tanod') || typeL.includes('outpost')) {
                                 marker.addTo(layerGroups.current.security);
                                 securityCount++;
+                                console.log('🛡️ Added to security layer, count:', securityCount);
                             } else {
                                 marker.addTo(layerGroups.current.facilities);
                                 facilityCount++;
+                                console.log('🏢 Added to facilities layer, count:', facilityCount);
                             }
                         });
+                        
+                        console.log('📊 Final counts:', { facilityCount, healthCount, securityCount });
+                    } else {
+                        console.warn('⚠️ No documents found in facilitiesData');
                     }
 
-                    if (boundaryData.fields?.coordinates?.arrayValue?.values) {
-                        const coords = boundaryData.fields.coordinates.arrayValue.values.map(coord => {
-                            const lat = coord.mapValue.fields.latitude.doubleValue;
-                            const lng = coord.mapValue.fields.longitude.doubleValue;
-                            return [parseFloat(lat), parseFloat(lng)];
-                        });
-
-                        L.polygon(coords, {
-                            color: '#ef4444',
-                            weight: 3,
-                            fillOpacity: 0.1
-                        }).addTo(layerGroups.current.boundary);
+                    if (boundaryData.fields?.points) {
+                        const points = parseFirestoreValue(boundaryData.fields.points);
+                        if (points && Array.isArray(points)) {
+                            const coords = points.map(p => [p.latitude, p.longitude]);
+                            L.polygon(coords, {
+                                color: '#ef4444',
+                                weight: 3,
+                                fillOpacity: 0.1
+                            }).addTo(layerGroups.current.boundary);
+                        }
                     }
 
                     if (floodZonesData.documents) {
                         floodZonesData.documents.forEach(doc => {
                             const fields = doc.fields;
-                            const level = fields.level?.stringValue;
-                            const coords = fields.coordinates?.arrayValue?.values?.map(coord => {
-                                const lat = coord.mapValue.fields.latitude.doubleValue;
-                                const lng = coord.mapValue.fields.longitude.doubleValue;
-                                return [parseFloat(lat), parseFloat(lng)];
-                            });
+                            const level = parseFirestoreValue(fields.level);
+                            const points = parseFirestoreValue(fields.points);
 
-                            if (!coords) return;
+                            if (points && Array.isArray(points)) {
+                                const coords = points.map(p => [p.latitude, p.longitude]);
+                                const color = level === 'very_high' ? '#7c3aed' :
+                                             level === 'high' ? '#6366f1' :
+                                             '#93c5fd';
 
-                            const color = level === 'very_high' ? '#7c3aed' :
-                                         level === 'high' ? '#6366f1' :
-                                         '#93c5fd';
-
-                            L.polygon(coords, {
-                                color: color,
-                                weight: 2,
-                                fillOpacity: 0.3
-                            }).addTo(layerGroups.current.floodZones);
+                                L.polygon(coords, {
+                                    color: color,
+                                    weight: 2,
+                                    fillOpacity: 0.3
+                                }).addTo(layerGroups.current.floodZones);
+                            }
                         });
                     }
 
-                    setStats({
-                        facilities: facilityCount,
-                        health: healthCount,
-                        security: securityCount,
-                        emergencies: 0
-                    });
-
                     setLoading(false);
                 } catch (error) {
-                    console.error('Error fetching map data:', error);
+                    console.error('❌ Error fetching map data:', error);
                     setLoading(false);
                 }
             };
@@ -250,12 +309,31 @@
 
         const getMarkerIcon = (type) => {
             const iconMap = {
-                barangay_hall: '<div style="width:24px;height:24px;background:#3b82f6;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:16px;">🏛️</div>',
-                health_center: '<div style="width:24px;height:24px;background:#ef4444;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:16px;">🏥</div>',
-                security_post: '<div style="width:24px;height:24px;background:#10b981;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:16px;">🛡️</div>',
-                default: '<div style="width:24px;height:24px;background:#6b7280;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:16px;">📍</div>'
+                'Barangay Hall': '🏛️',
+                'Health Center': '🏥',
+                'Police Outpost': '🛡️',
+                'School': '🏫',
+                'Evacuation Area': '🏕️',
+                'Fire Station': '🚒',
+                'Community Center': '🏢',
+                'health_center': '🏥',
+                'security_post': '🛡️',
+                'barangay_hall': '🏛️'
             };
-            return iconMap[type] || iconMap.default;
+            
+            const emoji = iconMap[type] || '📍';
+            const colorMap = {
+                'Health Center': '#ef4444',
+                'health_center': '#ef4444',
+                'Police Outpost': '#10b981',
+                'security_post': '#10b981',
+                'Barangay Hall': '#3b82f6',
+                'barangay_hall': '#3b82f6'
+            };
+            
+            const color = colorMap[type] || '#6b7280';
+            
+            return `<div style="width:24px;height:24px;background:${color};border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:16px;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.2);">${emoji}</div>`;
         };
 
         const toggleLayer = (layer) => {
